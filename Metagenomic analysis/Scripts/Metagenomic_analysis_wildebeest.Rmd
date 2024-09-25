@@ -1,0 +1,759 @@
+---
+title: "Statistical analysis of the  metagenomic data_Wildebeest"
+output:
+  html_document:
+    df_print: paged
+---
+
+### Required packages
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+#Packages used
+#library(dada2); packageVersion("dada2")
+library(DECIPHER)
+library(phyloseq)
+library(Biostrings)
+library(ggplot2)
+library(vegan)
+library(car)
+library(DescTools)
+library(ggtext)
+library(tibble)
+library(microbiomeMarker)
+#library(microbiomeMarker)
+```
+Reading the phyloseq object created in the DADA2 pipeline.
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+PS1 <- readRDS("PS1.rds")
+```
+
+# Rarefaction curves
+```{r}
+S <- specnumber(otu_table(PS1))
+raremax <- min(rowSums(otu_table(PS1)))
+otu_data <-  otu_table(PS1)
+OTU_df <- as.data.frame(otu_data)
+OTU_matrix <- as.matrix(OTU_df)
+Srare <- rarefy(OTU_matrix, raremax)
+plot(S, Srare, xlab = "Observed No. of Species", ylab = "Rarefied No. of Species")
+abline(0, 1)
+rarecurve(OTU_df, step = 50, sample = raremax,  col = "blue",
+          cex = 0.6, tidy = F)
+```
+
+# Rarefaction
+To obtain repeatable random sub-sampling, set seed to 19751226)
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+PS_normal <- rarefy_even_depth(PS1, rngseed=19751226, sample.size=min(sample_sums(PS1)), replace=F)
+```
+
+## Relative abundance Bar plot
+The 30 most dependent taxa were selected. 
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+top30 <- names(sort(taxa_sums(PS_normal), decreasing=TRUE))[1:30]
+ps.top30 <- transform_sample_counts(PS_normal, function(OTU) OTU/sum(OTU))
+ps.top30 <- prune_taxa(top30, ps.top30)
+plot_bar(ps.top30, x="Month", fill="Phylum")+
+  facet_wrap(~Group)+#"Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"
+  geom_bar(aes(color=Phylum, fill=Phylum), stat="identity", position="stack")
+```
+
+# Diversity
+## Alpha diversity
+Visualize alpha-diversity by the Observed richness and Simpson,s diversity
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+plot_richness(PS_normal, x="Month", measures=c("Observed","Simpson"),
+              color="Group")
+```
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(tidyr)
+
+rich = 
+  estimate_richness(PS_normal, measures = c(
+    "Observed", "Chao1", "ACE", "Shannon", "Simpson", "InvSimpson", "Fisher"))
+rich_res <- 
+  cbind(PS_normal@sam_data,rich$Observed,rich$Chao1,rich$ACE,
+        rich$Shannon,rich$Simpson,rich$InvSimpson,rich$Fisher)
+rich_res = 
+  rich_res%>%
+  unite(Treament_Month,Group, Month, sep = "_", remove = F)
+colnames(rich_res) <- c("Subject","Treament_Month","Group","Month","Site",
+                        "Observed", "Chao1", "ACE", "Shannon", "Simpson", "InvSimpson", "Fisher")
+```
+
+Testing the assumption of normality
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+#Observed richness
+Bnth_1_Obs_norm <- shapiro.test(rich_res[c(5:8),c(6)])
+Bnth_6_Obs_norm <- shapiro.test(rich_res[c(9:12),c(6)])
+Bnth_12_Obs_norm <- shapiro.test(rich_res[c(13:16),c(6)])
+Bnth_18_Obs_norm <- shapiro.test(rich_res[c(1:4),c(6)])
+Ctrl_1_Obs_norm <- shapiro.test(rich_res[c(20:23),c(6)])
+Ctrl_6_Obs_norm <- shapiro.test(rich_res[c(24:27),c(6)])
+Ctrl_12_Obs_norm <- shapiro.test(rich_res[c(28:31),c(6)])
+Ctrl_18_Obs_norm <- shapiro.test(rich_res[c(17:19),c(6)])
+as.numeric(list(Bnth_1_Obs_norm$p.value[1],Bnth_6_Obs_norm$p.value[1],
+                              Bnth_12_Obs_norm$p.value[1],Bnth_18_Obs_norm$p.value[1],
+                Ctrl_1_Obs_norm$p.value[1],Ctrl_6_Obs_norm$p.value[1],
+                Ctrl_12_Obs_norm$p.value[1],Ctrl_18_Obs_norm$p.value[1]))>0.05
+```
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+#Simpson's diversity
+Bnth_1_Sim_norm <- shapiro.test(rich_res[c(5:8),c(9)])
+Bnth_6_Sim_norm <- shapiro.test(rich_res[c(9:12),c(9)])
+Bnth_12_Sim_norm <- shapiro.test(rich_res[c(13:16),c(9)])
+Bnth_18_Sim_norm <- shapiro.test(rich_res[c(1:4),c(9)])
+Ctrl_1_Sim_norm <- shapiro.test(rich_res[c(20:23),c(9)])
+Ctrl_6_Sim_norm <- shapiro.test(rich_res[c(24:27),c(9)])
+Ctrl_12_Sim_norm <- shapiro.test(rich_res[c(28:31),c(9)])
+Ctrl_18_Sim_norm <- shapiro.test(rich_res[c(17:19),c(9)])
+as.numeric(list(Bnth_1_Sim_norm$p.value[1],Bnth_6_Sim_norm$p.value[1],
+                              Bnth_12_Sim_norm$p.value[1],Bnth_18_Sim_norm$p.value[1],
+                Ctrl_1_Sim_norm$p.value[1],Ctrl_6_Sim_norm$p.value[1],
+                Ctrl_12_Sim_norm$p.value[1],Ctrl_18_Sim_norm$p.value[1]))>0.05
+```
+Testing the assumption of Homoscedasticity
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+rich_M1 <- rbind(rich_res[c(5:8),(1:12)],rich_res[c(20:23),(1:12)])
+rich_M6 <- rbind(rich_res[c(9:12),(1:12)],rich_res[c(24:27),(1:12)])
+rich_M12 <- rbind(rich_res[c(13:16),(1:12)],rich_res[c(28:31),(1:12)])
+rich_M18 <- rbind(rich_res[c(1:4),(1:12)],rich_res[c(17:19),(1:12)])
+#Observed richness
+Obs1_hmsc <- leveneTest(Observed~Group, data = rich_M1)
+Obs6_hmsc <- leveneTest(Observed~Group, data = rich_M6)
+Obs12_hmsc <- leveneTest(Observed~Group, data = rich_M12)
+Obs18_hmsc <- leveneTest(Observed~Group, data = rich_M18)
+ObsH0_hmsc <- as.numeric(list(Obs1_hmsc$`Pr(>F)`[1],Obs6_hmsc$`Pr(>F)`[1],
+                              Obs12_hmsc$`Pr(>F)`[1],Obs18_hmsc$`Pr(>F)`[1]))>0.05
+as.numeric(list(Obs1_hmsc$`Pr(>F)`[1],Obs6_hmsc$`Pr(>F)`[1],
+                              Obs12_hmsc$`Pr(>F)`[1],Obs18_hmsc$`Pr(>F)`[1]))>0.05
+```
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+#Simpsond's diversity 
+Sim_1_hmsc <- leveneTest(Simpson~Group, data = rich_M1)
+Sim_6_hmsc <- leveneTest(Simpson~Group, data = rich_M6)
+Sim_12_hmsc <- leveneTest(Simpson~Group, data = rich_M12)
+Sim_18_hmsc <- leveneTest(Simpson~Group, data = rich_M18)
+SimH0_hmsc <- as.numeric(list(Sim_1_hmsc$`Pr(>F)`[1],Sim_6_hmsc$`Pr(>F)`[1],
+                              Sim_12_hmsc$`Pr(>F)`[1],Sim_18_hmsc$`Pr(>F)`[1]))>0.05
+as.numeric(list(Sim_1_hmsc$`Pr(>F)`[1],Sim_6_hmsc$`Pr(>F)`[1],
+                              Sim_12_hmsc$`Pr(>F)`[1],Sim_18_hmsc$`Pr(>F)`[1]))>0.05
+```
+
+There were instances of distribution not being normal, as well as heteroscedasticity. Moreover, the number of samples in each treatment is small (3 to 4). The more appropriate non-parametric tests were conducted. Parametric tests are less robust to deviations from normality when sample sizes are small. Even slight deviations from the normal distribution can lead to misleading results. For these reasons, non-parametric tests are often recommended for small sample sizes as they make fewer assumptions about the data distribution and are less affected by outliers (Lantz, B. 2013).
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+#Comparing Beneath_observed richness
+rich_res_Bnth <- rich_res[c(1:16),c(1:12)]
+Ob_Bnth <-kruskal.test(Observed~Month, data = rich_res_Bnth)
+Ob_Dunn_Bnth <- DunnTest(Observed~Month, data = rich_res_Bnth, method = "BH")
+###Beneath_Simpson's diversity####
+D_Parametric <- summary(aov(Simpson~Month,rich_res_Bnth))
+D_Bnth <-kruskal.test(Simpson~Month, data = rich_res_Bnth)
+D_Dunn_Bnth <- DunnTest(Simpson~Month, data = rich_res_Bnth, method = "BH")
+### Control_Observed richness ####
+rich_res_Ctrl <- rich_res[c(17:31),c(1:12)]
+Obs_Ctrl <-kruskal.test(Observed~Month, data = rich_res_Ctrl)
+Obs_Dunn_Ctrl <- DunnTest(Observed~Month, data = rich_res_Ctrl, method = "BH")
+### Control_Simpson's diversity ####
+Shan_Ctrl <-kruskal.test(Simpson~Month, data = rich_res_Ctrl)
+```
+
+Comparing the Observed Richness between groups (Beneath and Control) monthly
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# Observed richness monthly
+ObsM1 <- wilcox.test(Observed~Group, data = rich_M1, paired = F)
+ObsM6 <- wilcox.test(Observed~Group, data = rich_M6, paired = F)
+ObsM12 <- wilcox.test(Observed~Group, data = rich_M12, paired = F)
+ObsM18 <- wilcox.test(Observed~Group, data = rich_M18, paired = F)
+
+Obsp_M1 <- ObsM1$p.value[1]
+Obsp_M6 <- ObsM6$p.value[1]
+Obsp_M12 <- ObsM12$p.value[1]
+Obsp_M18 <- ObsM18$p.value[1]
+
+Obsp <- as.numeric(list(Obsp_M1,Obsp_M6,Obsp_M12,Obsp_M18))
+#Hypothesis test results, rejecting H0 (the NULL) at p < 0.05 
+ObsH0 <- as.numeric(list(Obsp_M1,Obsp_M6,Obsp_M12,Obsp_M18))<0.05
+as.numeric(list(Obsp_M1,Obsp_M6,Obsp_M12,Obsp_M18))<0.05
+```
+
+Comparing the Simpson's diversity between groups (Beneath and Control) monthly
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+SimM1 <- wilcox.test(Simpson~Group, data = rich_M1, paired = F, exact = TRUE)
+# mean(rich_M1[5:8,10])
+# sd(rich_M1[5:8,10])
+# mean(rich_M1[1:4,10])
+# sd(rich_M1[1:4,10])
+# str(SimM1)
+
+SimM6 <- wilcox.test(Simpson~Group, data = rich_M6, paired = F, exact = TRUE)
+# mean(rich_M6[5:8,10])
+# sd(rich_M6[5:8,10])
+# mean(rich_M6[1:4,10])
+# sd(rich_M6[1:4,10])
+
+SimM12 <- wilcox.test(Simpson~Group, data = rich_M12, paired = F)
+# mean(rich_M12[5:8,10])
+# sd(rich_M12[5:8,10])
+# mean(rich_M12[1:4,10])
+# sd(rich_M12[1:4,10])
+
+SimM18 <- wilcox.test(Simpson~Group, data = rich_M18, paired = F)
+# mean(rich_M18[5:7,10])
+# sd(rich_M18[5:7,10])
+# mean(rich_M18[1:4,10])
+# sd(rich_M18[1:4,10])
+
+Simp_M1 <- SimM1$p.value[1]
+Simp_M6 <- SimM6$p.value[1]
+Simp_M12 <- SimM12$p.value[1]
+Simp_M18 <- SimM18$p.value[1]
+
+Simp <- as.numeric(list(Simp_M1,Simp_M6,Simp_M12,Simp_M18))
+#Hypothesis test results, rejecting H0 (the NULL) at p < 0.05 
+SimH0 <-  as.numeric(list(Simp_M1,Simp_M6,Simp_M12,Simp_M18))<0.05
+as.numeric(list(Simp_M1,Simp_M6,Simp_M12,Simp_M18))<0.05
+```
+## Beta Diversity
+Ordination was performed and plotted by transforming data to Bray-Curtis distances and principal coordinate decomposition to visualise beta diversity. 
+All the months
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+PS_normal.prop <- transform_sample_counts(PS_normal, function(otu) otu/sum(otu))
+ord.PCoA.bray <- ordinate(PS_normal.prop, method="PCoA", distance="bray")
+plot_ordination(PS_normal.prop, ord.PCoA.bray, color="Month",shape = "Group", title="Bray PCoA")
+```
+
+## Hypothesis testing and ordination plots of beta diversity
+PERMANOVA (Permutational Multivariate Analysis of Variance) was performed to indicate it there are statistical difference betwee the 'beneath' and control group at each sampling time point. PERMANOVA is a non-parametric statistical test used to compare groups of objects based on multivariate data. It is particularly useful in fields like ecology and biology for analyzing complex datasets where traditional parametric assumptions (like normality) may not hold. 
+Betadisper (Multivariate Homogeneity of Group Dispersions) was also performed. It is a statistical method used to assess the homogeneity of variances (or dispersions) among groups in multivariate data. It is often used in conjunction with PERMANOVA to ensure that the assumption of homogeneity of dispersions is met.
+### One Months
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+#Set parameters 
+permu=9999#Amount of permutations
+my.dist= "bray" # distances:"bray" "unifrac"  "wunifrac" "dpcoa" "chi.square"
+adjstd.P="BH" # P value adjustment for pairwise comparison
+```
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# Isolating the results of One month
+PS_O_Bnth.Ctrl <- subset_samples(PS_normal, Month == "1")
+# To ensure that the correct groups and values are being compared the samples an their ASVs were confirmed with the View() call
+#View(PS_O_Bnth.Ctrl@sam_data)
+#View(PS_O_Bnth.Ctrl@otu_table)
+# Selecting the distance matrix
+PS_O_Bnth.Ctrl_dist <- phyloseq::distance(PS_O_Bnth.Ctrl, method = my.dist)
+metadata.PS_O_Bnth.Ctrl <- data.frame(sample_data(PS_O_Bnth.Ctrl))
+#PERMANOVA analysis
+adonis2(PS_O_Bnth.Ctrl_dist ~ Group, data = metadata.PS_O_Bnth.Ctrl,permutations = permu)
+# Dispersion around the Group centroid analysis
+Dispersion.O_Bnth.Ctrl <- betadisper(PS_O_Bnth.Ctrl_dist,metadata.PS_O_Bnth.Ctrl$Group,type = "centroid")
+# Homogeneity of the dispersion
+permutest(Dispersion.O_Bnth.Ctrl, permutations = permu, pairwise = F) 
+
+# Plot
+ord.PCoA.bray_One <- ordinate(PS_O_Bnth.Ctrl, method="PCoA", distance="bray")
+  plot_ordination(PS_O_Bnth.Ctrl, ord.PCoA.bray_One,
+                  type = "samples", 
+                  color="Group",
+                  shape = "Group",
+                  title="One month")+
+  geom_point(size = 3)+
+  scale_colour_manual(values = c("#E31A1C","#33A02C"))+
+  scale_shape_manual(values = c(16,1))+
+#  geom_richtext(data=tibble(x=c(0.0), y=c(-0.38))
+#                ,aes(x=x, y=y, label= paste0("PERMANOVA: R<sup>2</sup> = 0.41 </sup> *p* = 0.0284")), size= 3, inherit.aes = F)+
+  labs(x="PC1 (42.1%)",y="PC2 (13.6%)")
+dis_O <- data.frame(group=Dispersion.O_Bnth.Ctrl$group, distances=Dispersion.O_Bnth.Ctrl$distances)
+Dispersion.O_Bnth.Ctr_box <- ggplot(dis_O, aes(x=group, y=distances, fill=group)) +
+  scale_fill_manual(values = c("#E31A1C","#33A02C"))+
+  geom_boxplot()+
+  #  labs(title = "One month")+
+  xlab("One month") +
+  ylab("Distance to centroid") +
+ theme(legend.position = "none")
+```
+
+
+## Six months
+### Hypothesis tests
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+PS_S_Bnth.Ctrl <- subset_samples(PS_normal, Month == "6")
+#View(PS_S_Bnth.Ctrl@sam_data)
+#View(PS_S_Bnth.Ctrl@otu_table)
+PS_S_Bnth.Ctrl_dist <- phyloseq::distance(PS_S_Bnth.Ctrl, method = my.dist)
+metadata.PS_S_Bnth.Ctrl <- data.frame(sample_data(PS_S_Bnth.Ctrl))
+adonis2(PS_S_Bnth.Ctrl_dist ~ Group, data = metadata.PS_S_Bnth.Ctrl,permutations = permu)
+Dispersion.S_Bnth.Ctrl <- betadisper(PS_S_Bnth.Ctrl_dist,metadata.PS_S_Bnth.Ctrl$Group,type = "centroid")
+permutest(Dispersion.S_Bnth.Ctrl, permutations = permu, pairwise = F)
+
+## Plot
+ord.PCoA.bray_Six <- ordinate(PS_S_Bnth.Ctrl, method="PCoA", distance="bray")
+  plot_ordination(PS_S_Bnth.Ctrl, ord.PCoA.bray_Six,
+                  type = "samples", 
+                  color="Group",
+                  shape = "Group",
+                  title="Six months")+
+  geom_point(size = 3)+
+  scale_colour_manual(values = c("#FF7F00", "#33A02C"))+
+  scale_shape_manual(values = c(16,2))+
+#  geom_richtext(data=tibble(x=c(0.0), y=c(-0.29))
+#                ,aes(x=x, y=y, label= paste0("PERMANOVA: R<sup>2</sup> = 0.49 </sup> *p* = 0.026")), size= 3, inherit.aes = F)+
+  labs(x="PC1 (49.5%)",y="PC2 (12.2%)")
+dis_S <- data.frame(group=Dispersion.S_Bnth.Ctrl$group, distances=Dispersion.S_Bnth.Ctrl$distances)
+Dispersion.S_Bnth.Ctr_box <-  ggplot(dis_S, aes(x=group, y=distances, fill=group)) +
+  scale_fill_manual(values = c("#FF7F00", "#33A02C"))+
+  geom_boxplot()+
+  #  labs(title = "One month")+
+  xlab("Six months") +
+  ylab("Distance to centroid") +
+  theme(legend.position = "none")
+```
+
+
+# Twelve Months
+## Hypothesis test
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+PS_T_Bnth.Ctrl <- subset_samples(PS_normal, Month == "12")
+#View(PS_T_Bnth.Ctrl@sam_data)
+#View(PS_T_Bnth.Ctrl@otu_table)
+PS_T_Bnth.Ctrl_dist <- phyloseq::distance(PS_T_Bnth.Ctrl, method = my.dist)
+metadata.PS_T_Bnth.Ctrl <- data.frame(sample_data(PS_T_Bnth.Ctrl))
+adonis2(PS_T_Bnth.Ctrl_dist ~ Group, data = metadata.PS_T_Bnth.Ctrl,permutations = permu)
+Dispersion.T_Bnth.Ctrl <- betadisper(PS_T_Bnth.Ctrl_dist,metadata.PS_T_Bnth.Ctrl$Group,type = "centroid")
+permutest(Dispersion.T_Bnth.Ctrl, permutations = permu, pairwise = F)
+
+#Plot
+ord.PCoA.bray_Twelve <- ordinate(PS_T_Bnth.Ctrl, method="PCoA", distance="bray")
+plot_ordination(PS_T_Bnth.Ctrl, ord.PCoA.bray_Twelve,
+                  type = "samples", 
+                  color="Group",
+                  shape = "Group",
+                  title="Twelve month")+
+  geom_point(size = 3)+
+  scale_colour_manual(values = c("#FDBF6F", "#33A02C"))+
+  scale_shape_manual(values = c(16,5))+
+#  geom_richtext(data=tibble(x=c(0.0), y=c(-0.4))
+#                ,aes(x=x, y=y, label= paste0("PERMANOVA: R<sup>2</sup> = 0.38 </sup> *p* = 0.028")), size= 3, inherit.aes = F)+
+  labs(x="PC1 (38.7.1%)",y="PC2 (14.7%)")
+dis_T <- data.frame(group=Dispersion.T_Bnth.Ctrl$group, distances=Dispersion.T_Bnth.Ctrl$distances)
+Dispersion.T_Bnth.Ctrl_box <- ggplot(dis_T, aes(x=group, y=distances, fill=group)) +
+  scale_fill_manual(values = c("#FDBF6F", "#33A02C"))+
+  geom_boxplot()+
+  #  labs(title = "One month")+
+  xlab("Twelve months") +
+  ylab("Distance to centroid") +
+theme(legend.position = "none")
+```
+
+# Eighteen months
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+PS_E_Bnth.Ctrl <- subset_samples(PS_normal, Month == "18")
+#View(PS_E_Bnth.Ctrl@sam_data)
+#View(PS_E_Bnth.Ctrl@otu_table)
+PS_E_Bnth.Ctrl_dist <- phyloseq::distance(PS_E_Bnth.Ctrl, method = my.dist)
+metadata.PS_E_Bnth.Ctrl <- data.frame(sample_data(PS_E_Bnth.Ctrl))
+adonis2(PS_E_Bnth.Ctrl_dist ~ Group, data = metadata.PS_E_Bnth.Ctrl,permutations = permu)
+Dispersion.E_Bnth.Ctrl <- betadisper(PS_E_Bnth.Ctrl_dist,metadata.PS_E_Bnth.Ctrl$Group,type = "centroid")
+permutest(Dispersion.E_Bnth.Ctrl, permutations = permu, pairwise = F)
+
+# Plots
+ord.PCoA.bray_Eighteen <- ordinate(PS_E_Bnth.Ctrl, method="PCoA", distance="bray")
+  plot_ordination(PS_E_Bnth.Ctrl, ord.PCoA.bray_Eighteen,
+                  type = "samples", 
+                  color="Group",
+                  shape = "Group",
+                  title="Eighteen months")+
+  geom_point(size = 3)+
+  scale_colour_manual(values = c("#6A3D9A", "#33A02C"))+
+  scale_shape_manual(values = c(16,7))+
+#  geom_richtext(data=tibble(x=c(-0.075), y=c(-0.15))
+#                ,aes(x=x, y=y, label= paste0("PERMANOVA: R<sup>2</sup> = 0.26 </sup> *p* = 0.143")), size= 3, inherit.aes = F)+
+  labs(x="PC1 (45.5.7.1%)",y="PC2 (18.4%)")
+dis_E <- data.frame(group=Dispersion.E_Bnth.Ctrl$group, distances=Dispersion.E_Bnth.Ctrl$distances)
+Dispersion.E_Bnth.Ctrl_box <- ggplot(dis_E, aes(x=group, y=distances, fill=group)) +
+  scale_fill_manual(values = c("#6A3D9A", "#33A02C"))+
+  geom_boxplot()+
+  #  labs(title = "One month")+
+  xlab("Eighteen months") +
+  ylab("Distance to centroid") +
+  theme(legend.position = "none")
+```
+
+
+# LEfSe
+LEfSe (Linear Discriminant Analysis Effect Size) is a statistical tool used for identifying features (such as organisms, genes, or functions) that are significantly different between two or more biological conditions or classes. It is particularly useful in metagenomic studies for discovering biomarkers that explain the differences between microbial communities.
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+#Subset taxa to only include bacteria that are assigned.
+PSL <- subset_taxa(PS_normal, Kingdom=="Bacteria")
+PSL <- subset_taxa(PSL, Kingdom!= "unassigned")
+PSL <- subset_taxa(PSL, Phylum!= "unassigned")
+PSL <- subset_taxa(PSL,`Class`!= "unassigned")
+PSL <- subset_taxa(PSL,`Order`!= "unassigned")
+PSL <- subset_taxa(PSL,`Family`!= "unassigned")
+PSL <- subset_taxa(PSL,`Genus`!= "unassigned")
+
+PSL_M1 <-  subset_samples(PSL, Month == "1")
+PSL_M6 <-  subset_samples(PSL, Month == "6")
+PSL_M12 <-  subset_samples(PSL, Month == "12")
+PSL_M18 <-  subset_samples(PSL, Month == "18")
+PSL
+```
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+my_LEfSe_tranform <- "identity"
+#my_LEfSe_cols <- c(Beneath = "#CC6666",Control = "#66CC99")
+my_LEfSe_cols_B <- c(Beneath = "red",Control = "lightgreen")##E31A1C
+#my_LEfSe_cols_B <- c(Beneath = "red")
+```
+## Month 1
+In LEfSe (Linear Discriminant Analysis Effect Size), the default LDA score threshold is typically set to 2.012. This means that features with an LDA score greater than 2.0 are considered to have a significant effect size and are likely biologically meaningful. However, this threshold can be adjusted based on the specific requirements of the analysis. For instance, if many features exceed the default threshold, you might choose a higher cutoff to focus on the most significant features. Below, an LDA score greater than 2.65 is identified.
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+PSL_M1_p <-  prune_taxa(names(sort(taxa_sums(PSL_M1),TRUE)), PSL_M1) #[1:40], PSL_M1)
+tax_table(PSL_M1_p) <- tax_table(PSL_M1_p)[,2:4]
+PS_LEfSe_M1 <- 
+  run_lefse(PSL_M1_p,group = "Group",
+            taxa_rank = "all",
+            transform = my_LEfSe_tranform,
+            norm = "none",
+            kw_cutoff = 0.05,
+            lda_cutoff = 2.65,#2.65
+            bootstrap_n = 30,
+            bootstrap_fraction = 2/3,
+            wilcoxon_cutoff = 0.05,
+            multigrp_strat = T,
+            strict = c("0", "1", "2"),
+            #  sample_min = 2,
+            only_same_subgrp = F,
+            curv = T
+  )
+# view(marker_table(PS_LEfSe_M1))
+# markers_M1 <- marker_table(PS_LEfSe_M1)
+# markers_M1 <- as.tibble(markers_M1)
+# write.csv(markers_M1, file = "MMarkers_M1.csv")
+```
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+LEfSe_Clad_M1 <-  
+  plot_cladogram(PS_LEfSe_M1,
+                 color = c(Beneath = "#FF6666",Control = "lightgreen"),#"#F91C1C"
+                 only_marker = F,
+                 # branch_size = 1,
+                 alpha = 0.04,
+                 node_size_scale = 1.5,
+                 node_size_offset = 0,
+                 clade_label_level = 6,
+                 clade_label_font_size = 5,
+                 #annotation_shape = 22,
+                 #annotation_shape_size = 4,
+                 #group_legend_param = list(),
+                 marker_legend_param = list())+
+  #theme(legend.position = "bottom")+
+  #theme(legend.position = "none")+
+  theme(legend.text = element_text(size = 13)
+  )+
+  # ggtitle("One month")+
+  theme(plot.title = element_text(size=22,hjust = 0.5))
+LEfSe_Clad_M1
+
+```
+As many taxa were identified, some graphical parameters were exceeded, resulting in some warnings.
+The plot is clearer when save in the parameters below.
+# ggsave(file=“M1_LEfSe_Clado_LDA3.svg”, LEfSe_Clad_M1, # width = 400, height = 200, units = “mm”)
+
+Genera that exceeded an LDA score of 2.65 in a bar plot
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+PSL_M1_p <-  prune_taxa(names(sort(taxa_sums(PSL_M1),TRUE)), PSL_M1) #[1:40], PSL_M1)
+tax_table(PSL_M1_p) <- tax_table(PSL_M1_p)[,6]
+PS_LEfSe_M1 <- 
+  run_lefse(PSL_M1_p,group = "Group",
+            taxa_rank = "all",
+            transform = my_LEfSe_tranform,
+            norm = "none",
+            kw_cutoff = 0.05,
+            lda_cutoff = 2.65,#2.
+            bootstrap_n = 30,
+            bootstrap_fraction = 2/3,
+            wilcoxon_cutoff = 0.05,
+            multigrp_strat = T,
+            strict = c("0", "1", "2"),
+            #  sample_min = 2,
+            only_same_subgrp = F,
+            curv = T
+  )
+
+ef_bar_plot_M1 <-  
+  plot_ef_bar(PS_LEfSe_M1,label_level = 1,
+              max_label_len = 90, markers = NULL)+
+scale_fill_manual(values = my_LEfSe_cols_B)+
+  theme(axis.text.y=element_text(face="italic", size = 12))+#theme(axis.text.y=element_text(face="italic", size = 12))+
+  theme(legend.position = "none")+
+  theme(legend.text = element_text(size = 16)+
+          theme(strip.background = element_blank())
+  )+
+  ggtitle("Genus") 
+ef_bar_plot_M1
+```
+and an abundance plot at the genus level.
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+plot_abundance(PS_LEfSe_M1, group = "Group")+
+  scale_fill_manual(values = my_LEfSe_cols_B)+
+  theme(axis.text.y=element_text( size = 12))+#theme(axis.text.y=element_text(face="italic", size = 12))+
+  theme(legend.position = "right")+
+  theme(legend.text = element_text(size = 16)+
+          theme(strip.background = element_blank())
+  )+
+  ggtitle("One month") 
+```
+
+
+# Month 6
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+PSL_M6_p <-  prune_taxa(names(sort(taxa_sums(PSL_M6),TRUE)), PSL_M6)#)[1:40], PSL_M6)
+tax_table(PSL_M6_p) <- tax_table(PSL_M6_p)[,2:4]
+PS_LEfSe_M6 <- 
+  run_lefse(PSL_M6_p,group = "Group",
+            taxa_rank = "all",
+            transform = my_LEfSe_tranform,
+            norm = "none",
+            kw_cutoff = 0.05,
+            lda_cutoff = 2.65,#2.65
+            bootstrap_n = 30,
+            bootstrap_fraction = 2/3,
+            wilcoxon_cutoff = 0.05,
+            multigrp_strat = F,
+            strict = c("0", "1", "2"),
+            #  sample_min = 2,
+            only_same_subgrp = F,
+            curv = T
+  )
+# marker_table(PS_LEfSe_M6)
+LEfSe_Clad_M6 <-  
+  plot_cladogram(PS_LEfSe_M6,
+                 color = c(Beneath = "#FF7F00",Control = "lightgreen"),
+                 only_marker = T,
+                 #branch_size = 0.5,
+                 alpha = 0.1,
+                 node_size_scale = 1.5,
+                 node_size_offset = 0,
+                 clade_label_level = 6,
+                 clade_label_font_size = 5,
+                 #annotation_shape = 22,
+                 #annotation_shape_size = 4,
+                 #group_legend_param = list(),
+                 marker_legend_param = list())+
+  #theme(legend.position = "none")+
+  theme(legend.text = element_text(size = 12)
+  )+
+  # ggtitle("Six months")+
+  theme(plot.title = element_text(size=22,hjust = 0.5))
+LEfSe_Clad_M6
+
+PSL_M6_p <-  prune_taxa(names(sort(taxa_sums(PSL_M6),TRUE)), PSL_M6)#)[1:40], PSL_M6)
+tax_table(PSL_M6_p) <- tax_table(PSL_M6_p)[,6]
+PS_LEfSe_M6 <- 
+  run_lefse(PSL_M6_p,group = "Group",
+            taxa_rank = "all",
+            transform = my_LEfSe_tranform,
+            norm = "none",
+            kw_cutoff = 0.05,
+            lda_cutoff = 2.65,#2.5
+            bootstrap_n = 30,
+            bootstrap_fraction = 2/3,
+            wilcoxon_cutoff = 0.05,
+            multigrp_strat = F,
+            strict = c("0", "1", "2"),
+            #  sample_min = 2,
+            only_same_subgrp = F,
+            curv = T
+  )
+# marker_table(PS_LEfSe_M6)
+ef_bar_plot_M6 <-  
+  plot_ef_bar(PS_LEfSe_M6,label_level = 3, max_label_len = 90, markers = NULL)+
+  scale_fill_manual(values = c(Beneath = "red",Control = "lightgreen"))+
+  theme(axis.text.y=element_text(size = 12))+#theme(axis.text.y=element_text(face="italic", size = 12))
+  theme(legend.position = "none")+
+  theme(legend.text = element_text(size = 16)+
+          theme(strip.background = element_blank())
+  )+
+  ggtitle("Six months") 
+ef_bar_plot_M6
+
+plot_abundance(PS_LEfSe_M6, group = "Group")+
+  scale_fill_manual(values = my_LEfSe_cols_B)+
+  theme(axis.text.y=element_text( size = 12))+#theme(axis.text.y=element_text(face="italic", size = 12))+
+  theme(legend.position = "right")+
+  theme(legend.text = element_text(size = 16)+
+          theme(strip.background = element_blank())
+  )+
+  ggtitle("Six months")
+
+```
+
+###Month 12####    
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+PSL_M12_p <-  prune_taxa(names(sort(taxa_sums(PSL_M12),TRUE)), PSL_M12)#)[1:40], PSL_M12)
+tax_table(PSL_M12_p) <- tax_table(PSL_M12_p)[,1:4]
+PS_LEfSe_M12 <- 
+  run_lefse(PSL_M12_p,group = "Group",
+            taxa_rank = "all",
+            transform = my_LEfSe_tranform,
+            norm = "none",
+            kw_cutoff = 0.05,
+            lda_cutoff = 2.5,#2.65
+            bootstrap_n = 30,
+            bootstrap_fraction = 2/3,
+            wilcoxon_cutoff = 0.05,
+            multigrp_strat = F,
+            strict = c("0", "1", "2"),
+            #  sample_min = 2,
+            only_same_subgrp = F,
+            curv = T
+  )
+# view(marker_table(PS_LEfSe_M12))
+
+LEfSe_Clad_M12 <-  
+  plot_cladogram(PS_LEfSe_M12,
+                 color = c(Beneath = "#FDBF6F",Control = "lightgreen"),
+                 only_marker = F,
+                 #branch_size = 0.5,
+                 alpha = 0.1,
+                 node_size_scale = 1.2,
+                 node_size_offset = 0,
+                 clade_label_level = 6,
+                 clade_label_font_size = 5,
+                 #annotation_shape = 22,
+                 #annotation_shape_size = 4,
+                 #group_legend_param = list(),
+                 marker_legend_param = list())+
+  #theme(legend.position = "none")+
+  theme(legend.text = element_text(size = 12)
+  )+
+  # ggtitle("Twelve months")+
+  theme(plot.title = element_text(size=22,hjust = 0.5))
+LEfSe_Clad_M12
+
+PSL_M12_p <-  prune_taxa(names(sort(taxa_sums(PSL_M12),TRUE)), PSL_M12)#)[1:40], PSL_M12)
+tax_table(PSL_M12_p) <- tax_table(PSL_M12_p)[,6]
+PS_LEfSe_M12 <- 
+  run_lefse(PSL_M12_p,group = "Group",
+            taxa_rank = "all",
+            transform = my_LEfSe_tranform,
+            norm = "none",
+            kw_cutoff = 0.05,
+            lda_cutoff = 2.5,#2.65
+            bootstrap_n = 30,
+            bootstrap_fraction = 2/3,
+            wilcoxon_cutoff = 0.05,
+            multigrp_strat = F,
+            strict = c("0", "1", "2"),
+            #  sample_min = 2,
+            only_same_subgrp = F,
+            curv = T
+  )
+
+ef_bar_plot_M12 <-  
+  plot_ef_bar(PS_LEfSe_M12,label_level = 3, max_label_len = 90, markers = NULL)+
+  scale_fill_manual(values =c(Beneath = "red",Control = "lightgreen"))+
+  theme(axis.text.y=element_text( size = 12))+#theme(axis.text.y=element_text(face="italic", size = 12))+
+  theme(legend.position = "right")+
+  theme(legend.text = element_text(size = 16)+
+          theme(strip.background = element_blank())
+  )+
+  ggtitle("Twelve months") 
+ef_bar_plot_M12
+
+plot_abundance(PS_LEfSe_M12, group = "Group")+
+  scale_fill_manual(values = my_LEfSe_cols_B)+
+  theme(axis.text.y=element_text( size = 12))+#theme(axis.text.y=element_text(face="italic", size = 12))+
+  theme(legend.position = "right")+
+  theme(legend.text = element_text(size = 16)+
+          theme(strip.background = element_blank())
+  )+
+  ggtitle("Twelve months")
+```
+###Month 18####    
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+PSL_M18_p <-  prune_taxa(names(sort(taxa_sums(PSL_M18),TRUE)), PSL_M18)#)[1:40], PSL_M18)
+tax_table(PSL_M18_p) <- tax_table(PSL_M18_p)[,2:6]
+PS_LEfSe_M18 <- 
+  run_lefse(PSL_M18_p,group = "Group",
+            taxa_rank = "all",
+            transform = my_LEfSe_tranform,
+            norm = "none",
+            kw_cutoff = 0.05,
+            lda_cutoff = 2.65,#2.65
+            bootstrap_n = 30,
+            bootstrap_fraction = 2/3,
+            wilcoxon_cutoff = 0.05,
+            multigrp_strat = F,
+            strict = c("0", "1", "2"),
+            #  sample_min = 2,
+            only_same_subgrp = F,
+            curv = T
+  )
+#marker_table(PS_LEfSe_M18)
+
+LEfSe_Clad_M18 <-  
+  plot_cladogram(PS_LEfSe_M18,
+                 color = c(Beneath = "yellow",Control = "lightgreen"),
+                 only_marker = T,
+                 #branch_size = 0.5,
+                 alpha = 0.1,
+                 node_size_scale = 1,
+                 node_size_offset = 0,
+                 clade_label_level = 6,
+                 clade_label_font_size = 5,
+                 #annotation_shape = 22,
+                 #annotation_shape_size = 4,
+                 #group_legend_param = list(),
+                 marker_legend_param = list())+
+  #theme(legend.position = "none")+
+  theme(legend.text = element_text(size = 14)
+  )+
+  # ggtitle("Eighteen months")+
+  theme(plot.title = element_text(size=22,hjust = 0.5))
+LEfSe_Clad_M18
+
+PSL_M18_p <-  prune_taxa(names(sort(taxa_sums(PSL_M18),TRUE)), PSL_M18)#)[1:40], PSL_M18)
+tax_table(PSL_M18_p) <- tax_table(PSL_M18_p)[,6]
+PS_LEfSe_M18 <- 
+  run_lefse(PSL_M18_p,group = "Group",
+            taxa_rank = "all",
+            transform = my_LEfSe_tranform,
+            norm = "none",
+            kw_cutoff = 0.05,
+            lda_cutoff = 2,#2.65
+            bootstrap_n = 30,
+            bootstrap_fraction = 2/3,
+            wilcoxon_cutoff = 0.05,
+            multigrp_strat = F,
+            strict = c("0", "1", "2"),
+            #  sample_min = 2,
+            only_same_subgrp = F,
+            curv = T
+  )
+ef_bar_plot_M18 <-  
+  plot_ef_bar(PS_LEfSe_M18,label_level = 3, max_label_len = 90, markers = NULL)+
+  scale_fill_manual(values = c(Beneath = "yellow",Control = "lightgreen"))+
+  theme(axis.text.y=element_text(size = 12))+#theme(axis.text.y=element_text(face="italic", size = 12))+
+  theme(legend.position = "none")+
+  theme(legend.text = element_text(size = 16)+
+          theme(strip.background = element_blank())
+  )+
+  ggtitle("Phylum;Class;Order;Family;Genus") 
+ef_bar_plot_M18
+
+plot_abundance(PS_LEfSe_M18, group = "Group")+
+  scale_fill_manual(values = my_LEfSe_cols_B)+
+  theme(axis.text.y=element_text( size = 12))+#theme(axis.text.y=element_text(face="italic", size = 12))+
+  theme(legend.position = "right")+
+  theme(legend.text = element_text(size = 16)+
+          theme(strip.background = element_blank())
+  )+
+  ggtitle("Eighteen months")
+
+```
